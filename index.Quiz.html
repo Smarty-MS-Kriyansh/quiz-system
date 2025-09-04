@@ -2,124 +2,129 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Image Quiz System</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f6f9;
-      margin: 0;
-      padding: 0;
-      text-align: center;
-    }
-    h1 {
-      background: #333;
-      color: white;
-      padding: 15px;
-      margin: 0;
-    }
-    .container {
-      margin: 20px auto;
-      padding: 20px;
-      max-width: 600px;
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0px 3px 10px rgba(0,0,0,0.1);
-    }
-    .question-img {
-      max-width: 100%;
-      margin: 15px 0;
-      border: 2px solid #ddd;
-      border-radius: 8px;
-    }
-    .options button {
-      display: block;
-      width: 100%;
-      margin: 8px 0;
-      padding: 12px;
-      border: none;
-      border-radius: 6px;
-      background: #007BFF;
-      color: white;
-      font-size: 16px;
-      cursor: pointer;
-      transition: 0.3s;
-    }
-    .options button:hover {
-      background: #0056b3;
-    }
-    .hidden {
-      display: none;
-    }
+    body { font-family: Arial; background:#f9f9f9; margin:0; padding:20px; }
+    #quizBox { max-width:800px; margin:auto; background:#fff; padding:20px; border-radius:10px; }
+    .question-img { max-width:100%; border:1px solid #ddd; margin-bottom:15px; }
+    .options label { display:block; padding:10px; border:1px solid #ddd; margin:5px 0; border-radius:5px; cursor:pointer; }
+    .nav-btn { padding:10px 20px; margin:10px; border:none; border-radius:5px; cursor:pointer; background:#007bff; color:#fff; }
+    .nav-btn:hover { background:#0056b3; }
+    .flag { color:red; cursor:pointer; margin-top:10px; }
+    #timer { font-weight:bold; color:darkred; margin-bottom:10px; }
+    #scoreBox { background:#eef; padding:20px; border-radius:10px; }
   </style>
 </head>
 <body>
 
-  <h1>Image Quiz System</h1>
+<h2>📘 Image Quiz System</h2>
+<button id="uploadBtn">Upload PDF</button>
+<input type="file" id="pdfFile" accept="application/pdf" style="display:none;">
+<div id="progress"></div>
 
-  <div class="container" id="uploadBox">
-    <h3>Upload Quiz PDF (Admin Only)</h3>
-    <input type="file" id="pdfInput">
-    <button onclick="generateLink()">Generate Quiz Link</button>
-    <p id="quizLink"></p>
-  </div>
+<div id="quizBox" style="display:none;">
+  <h2 id="quizTitle"></h2>
+  <div id="timer"></div>
+  <div id="questionArea"></div>
+  <div id="buttons"></div>
+  <div class="flag" onclick="flagQuestion()">🚩 Flag & Review</div>
+  <button onclick="submitTest()" style="float:right;">Submit Test</button>
+</div>
 
-  <div class="container hidden" id="quizBox">
-    <h3 id="qTitle">Question</h3>
-    <img id="qImage" class="question-img" src="" alt="Question Image">
-    <div class="options">
-      <button onclick="selectOption(1)">Option 1</button>
-      <button onclick="selectOption(2)">Option 2</button>
-      <button onclick="selectOption(3)">Option 3</button>
-      <button onclick="selectOption(4)">Option 4</button>
-    </div>
-  </div>
+<div id="resultBox" style="display:none;"></div>
 
-  <div class="container hidden" id="resultBox">
-    <h2>Quiz Finished 🎉</h2>
-    <p id="resultText"></p>
-  </div>
-
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
 <script>
-let questions = [
-  // 👇 Example image questions (replace with auto-cropped images later)
-  { img: "https://via.placeholder.com/500x200?text=Question+1" },
-  { img: "https://via.placeholder.com/500x200?text=Question+2" },
-  { img: "https://via.placeholder.com/500x200?text=Question+3" }
-];
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js";
 
-let currentQ = 0;
-let answers = [];
+  let questions=[], current=0, answers={}, flags={}, timerInt, time=30*60;
 
-function generateLink() {
-  document.getElementById("uploadBox").classList.add("hidden");
-  document.getElementById("quizBox").classList.remove("hidden");
-  loadQuestion();
-}
+  document.getElementById("uploadBtn").onclick=()=>document.getElementById("pdfFile").click();
 
-function loadQuestion() {
-  if (currentQ < questions.length) {
-    document.getElementById("qTitle").innerText = `Question ${currentQ + 1}`;
-    document.getElementById("qImage").src = questions[currentQ].img;
-  } else {
-    endQuiz();
+  document.getElementById("pdfFile").onchange=async (e)=>{
+    let file=e.target.files[0];
+    let reader=new FileReader();
+    reader.readAsArrayBuffer(file);
+    reader.onload=async function(){
+      document.getElementById("progress").innerText="Processing PDF...";
+      let typedarray=new Uint8Array(this.result);
+      let pdf=await pdfjsLib.getDocument(typedarray).promise;
+      questions=[];
+      // 🚀 Skip last page (Answer Key)
+      for(let i=1;i<pdf.numPages;i++){
+        let page=await pdf.getPage(i);
+        let viewport=page.getViewport({scale:1.2});
+        let canvas=document.createElement("canvas");
+        let ctx=canvas.getContext("2d");
+        canvas.height=viewport.height;
+        canvas.width=viewport.width;
+        await page.render({canvasContext:ctx, viewport:viewport}).promise;
+        let img=canvas.toDataURL("image/png");
+        questions.push({id:i, image:img, options:["1","2","3","4"], answer:"1"});
+      }
+      document.getElementById("quizTitle").innerText=file.name;
+      document.getElementById("quizBox").style.display="block";
+      startTimer();
+      showQuestion(0);
+      document.getElementById("progress").innerText="";
+    };
+  };
+
+  function startTimer(){
+    timerInt=setInterval(()=>{
+      let m=Math.floor(time/60), s=time%60;
+      document.getElementById("timer").innerText=`${m}M:${s}S`;
+      time--; if(time<0){ clearInterval(timerInt); submitTest(true); }
+    },1000);
   }
-}
 
-function selectOption(opt) {
-  answers.push({ q: currentQ+1, answer: opt });
-  currentQ++;
-  loadQuestion();
-}
+  function showQuestion(i){
+    current=i;
+    let q=questions[i];
+    let html=`<img src="${q.image}" class="question-img">`;
+    html+=`<div class="options">`;
+    q.options.forEach(opt=>{
+      html+=`<label><input type="radio" name="opt" value="${opt}" ${(answers[q.id]==opt?"checked":"")}> Option ${opt}</label>`;
+    });
+    html+=`</div>`;
+    document.getElementById("questionArea").innerHTML=html;
+    document.getElementById("buttons").innerHTML=
+      `<button class="nav-btn" onclick="prev()">Previous</button>
+       <button class="nav-btn" onclick="skip()">Skip</button>
+       <button class="nav-btn" onclick="saveNext()">Save & Next</button>`;
+  }
 
-function endQuiz() {
-  document.getElementById("quizBox").classList.add("hidden");
-  document.getElementById("resultBox").classList.remove("hidden");
-  document.getElementById("resultText").innerText =
-    `You answered ${answers.length} questions. Selected Options: ` +
-    answers.map(a => `Q${a.q} → ${a.answer}`).join(", ");
-}
+  function prev(){ if(current>0) showQuestion(current-1); }
+  function skip(){ if(current<questions.length-1) showQuestion(current+1); }
+  function saveNext(){
+    let sel=document.querySelector("input[name=opt]:checked");
+    if(!sel){ alert("Please Choose an option!"); return; }
+    answers[questions[current].id]=sel.value;
+    if(current<questions.length-1) showQuestion(current+1);
+  }
+  function flagQuestion(){ flags[questions[current].id]=true; alert("Flagged for review!"); }
+
+  function submitTest(timeout=false){
+    if(!timeout && !confirm("Are you Sure to Submit your Test?")) return;
+    clearInterval(timerInt);
+    let attempt=Object.keys(answers).length;
+    let unattempt=questions.length-attempt;
+    let score=attempt; 
+    let perc=Math.round((score/(questions.length*4))*100);
+    document.getElementById("quizBox").style.display="none";
+    document.getElementById("resultBox").style.display="block";
+    document.getElementById("resultBox").innerHTML=`
+      <div id="scoreBox">
+        <h2>Test Submitted ✅</h2>
+        <p>Total Questions: ${questions.length}</p>
+        <p>Attempted: ${attempt}</p>
+        <p>Unattempted: ${unattempt}</p>
+        <p>Score (Demo): ${score}</p>
+        <p>Percentage: ${perc}%</p>
+        <button onclick="location.reload()">Reattempt</button>
+      </div>`;
+  }
 </script>
-
 </body>
 </html>
