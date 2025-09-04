@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image Quiz System</title>
+  <style>
+    body { font-family: Arial; background:#f9f9f9; margin:0; padding:20px; }
+    #quizBox { max-width:800px; margin:auto; background:#fff; padding:20px; border-radius:10px; }
+    .question-img { max-width:100%; border:1px solid #ddd; margin-bottom:15px; }
+    .options label { display:block; padding:10px; border:1px solid #ddd; margin:5px 0; border-radius:5px; cursor:pointer; }
+    .nav-btn { padding:10px 20px; margin:10px; border:none; border-radius:5px; cursor:pointer; }
+    .flag { color:red; cursor:pointer; }
+    #timer { font-weight:bold; color:darkred; margin-bottom:10px; }
+    #scoreBox { background:#eef; padding:20px; border-radius:10px; }
+  </style>
+</head>
+<body>
+
+<button id="uploadBtn">Upload PDF</button>
+<input type="file" id="pdfFile" accept="application/pdf" style="display:none;">
+<div id="progress"></div>
+
+<div id="quizBox" style="display:none;">
+  <h2 id="quizTitle"></h2>
+  <div id="timer"></div>
+  <div id="questionArea"></div>
+  <div id="buttons"></div>
+  <div class="flag" onclick="flagQuestion()">🚩 Flag & Review</div>
+  <button onclick="submitTest()" style="float:right;">Submit Test</button>
+</div>
+
+<div id="resultBox" style="display:none;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+<script>
+let questions=[], current=0, answers={}, flags={}, timerInt, time=30*60;
+
+document.getElementById("uploadBtn").onclick=()=>document.getElementById("pdfFile").click();
+
+document.getElementById("pdfFile").onchange=async (e)=>{
+  let file=e.target.files[0];
+  let reader=new FileReader();
+  reader.readAsArrayBuffer(file);
+  reader.onload=async function(){
+    document.getElementById("progress").innerText="Processing PDF...";
+    let typedarray=new Uint8Array(this.result);
+    let pdf=await pdfjsLib.getDocument(typedarray).promise;
+    questions=[];
+    for(let i=1;i<=pdf.numPages;i++){
+      let page=await pdf.getPage(i);
+      let viewport=page.getViewport({scale:1.5});
+      let canvas=document.createElement("canvas");
+      let ctx=canvas.getContext("2d");
+      canvas.height=viewport.height;
+      canvas.width=viewport.width;
+      await page.render({canvasContext:ctx, viewport:viewport}).promise;
+      // Full page image as "question"
+      let img=canvas.toDataURL("image/png");
+      questions.push({id:i, image:img, options:["1","2","3","4"], answer:"1"});
+    }
+    document.getElementById("quizTitle").innerText=file.name;
+    document.getElementById("quizBox").style.display="block";
+    startTimer();
+    showQuestion(0);
+    document.getElementById("progress").innerText="";
+  };
+};
+
+function startTimer(){
+  timerInt=setInterval(()=>{
+    let m=Math.floor(time/60), s=time%60;
+    document.getElementById("timer").innerText=`${m}M:${s}S`;
+    time--; if(time<0){ clearInterval(timerInt); submitTest(true); }
+  },1000);
+}
+
+function showQuestion(i){
+  current=i;
+  let q=questions[i];
+  let html=`<img src="${q.image}" class="question-img">`;
+  html+=`<div class="options">`;
+  q.options.forEach(opt=>{
+    html+=`<label><input type="radio" name="opt" value="${opt}" ${(answers[q.id]==opt?"checked":"")}> Option ${opt}</label>`;
+  });
+  html+=`</div>`;
+  document.getElementById("questionArea").innerHTML=html;
+  document.getElementById("buttons").innerHTML=
+    `<button class="nav-btn" onclick="prev()">Previous</button>
+     <button class="nav-btn" onclick="skip()">Skip</button>
+     <button class="nav-btn" onclick="saveNext()">Save & Next</button>`;
+}
+
+function prev(){ if(current>0) showQuestion(current-1); }
+function skip(){ if(current<questions.length-1) showQuestion(current+1); }
+function saveNext(){
+  let sel=document.querySelector("input[name=opt]:checked");
+  if(!sel){ alert("Please Choose an option!"); return; }
+  answers[questions[current].id]=sel.value;
+  if(current<questions.length-1) showQuestion(current+1);
+}
+function flagQuestion(){ flags[questions[current].id]=true; alert("Flagged for review!"); }
+
+function submitTest(timeout=false){
+  if(!timeout && !confirm("Are you Sure to Submit your Test?")) return;
+  clearInterval(timerInt);
+  let attempt=Object.keys(answers).length;
+  let unattempt=questions.length-attempt;
+  let score=attempt; // bas demo ke liye
+  let perc=Math.round((score/(questions.length*4))*100);
+  document.getElementById("quizBox").style.display="none";
+  document.getElementById("resultBox").style.display="block";
+  document.getElementById("resultBox").innerHTML=`
+    <div id="scoreBox">
+      <h2>Test Submitted ✅</h2>
+      <p>Total Questions: ${questions.length}</p>
+      <p>Attempted: ${attempt}</p>
+      <p>Unattempted: ${unattempt}</p>
+      <p>Score (Demo): ${score}</p>
+      <p>Percentage: ${perc}%</p>
+      <button onclick="location.reload()">Reattempt</button>
+    </div>`;
+}
+</script>
+</body>
+</html>
